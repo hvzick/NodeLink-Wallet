@@ -2,6 +2,9 @@ import React from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 
+// Add SupportedNetwork type
+type SupportedNetwork = "ethereum" | "sepolia";
+
 interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
@@ -10,7 +13,8 @@ interface SettingsModalProps {
   onShareAddress?: () => void;
   walletAddress?: string;
   onExportPrivateKey?: () => void;
-  onViewTransactions?: () => void; // Add this line
+  onViewTransactions?: () => void;
+  selectedNetwork: SupportedNetwork; // <-- Required for dynamic Etherscan text
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -21,7 +25,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onShareAddress,
   walletAddress,
   onExportPrivateKey,
-  onViewTransactions, // Add this parameter
+  onViewTransactions,
+  selectedNetwork, // <-- use this prop!
 }) => {
   return (
     <Modal
@@ -39,14 +44,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* View on Etherscan */}
+          {/* View on Etherscan (dynamic text) */}
           {onViewOnEtherscan && (
             <TouchableOpacity
               style={styles.modalOption}
               onPress={onViewOnEtherscan}
             >
               <Icon name="visibility" size={24} color="#007AFF" />
-              <Text style={styles.modalOptionText}>View on Etherscan</Text>
+              <Text style={styles.modalOptionText}>
+                {selectedNetwork === "sepolia"
+                  ? "View on Sepolia Etherscan"
+                  : "View on Etherscan"}
+              </Text>
               <Icon name="open-in-new" size={18} color="#666" />
             </TouchableOpacity>
           )}

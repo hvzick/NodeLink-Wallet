@@ -11,6 +11,8 @@ import {
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { formatTimeAgo } from "../../../../utils/WalletUtils/dateFormatter";
 
+type SupportedNetwork = "ethereum" | "sepolia";
+
 interface Transaction {
   hash: string;
   from: string;
@@ -28,6 +30,12 @@ interface TransactionsModalProps {
   onClose: () => void;
   transactions: Transaction[];
   walletAddress: string | null;
+  selectedNetwork: SupportedNetwork; // ADD THIS
+}
+
+function getEtherscanTxUrl(hash: string, network: SupportedNetwork) {
+  if (network === "sepolia") return `https://sepolia.etherscan.io/tx/${hash}`;
+  return `https://etherscan.io/tx/${hash}`;
 }
 
 export const TransactionsModal: React.FC<TransactionsModalProps> = ({
@@ -35,10 +43,11 @@ export const TransactionsModal: React.FC<TransactionsModalProps> = ({
   onClose,
   transactions,
   walletAddress,
+  selectedNetwork,
 }) => {
   const handleTransactionPress = async (hash: string) => {
     if (hash) {
-      const url = `https://etherscan.io/tx/${hash}`;
+      const url = getEtherscanTxUrl(hash, selectedNetwork);
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
@@ -160,6 +169,7 @@ export const TransactionsModal: React.FC<TransactionsModalProps> = ({
   );
 };
 
+// --- (Styles: same, or update as desired for your theme) ---
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,

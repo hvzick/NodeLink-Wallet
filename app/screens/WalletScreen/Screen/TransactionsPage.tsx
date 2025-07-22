@@ -1,4 +1,3 @@
-// screens/Wallet/components/TransactionsPage.tsx
 import { Alchemy, AssetTransfersCategory, SortingOrder } from "alchemy-sdk";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -38,6 +37,7 @@ interface TransactionsPageProps {
   onClose: () => void;
   walletAddress: string;
   alchemy: Alchemy;
+  selectedNetwork: "ethereum" | "sepolia";
 }
 
 interface TransactionDetailModalProps {
@@ -45,13 +45,26 @@ interface TransactionDetailModalProps {
   transaction: Transaction | null;
   walletAddress: string;
   onClose: () => void;
+  selectedNetwork: "ethereum" | "sepolia";
 }
 
-// Transaction Detail Modal Component
+// ------------- Helper: Get Etherscan Transaction URL for Network -------------
+function getEtherscanTxUrl(hash: string, net: string) {
+  switch (net) {
+    case "sepolia":
+      return `https://sepolia.etherscan.io/tx/${hash}`;
+    case "ethereum":
+    default:
+      return `https://etherscan.io/tx/${hash}`;
+  }
+}
+
+// ------------------- Transaction Detail Modal Component ---------------------
 const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   visible,
   transaction,
   walletAddress,
+  selectedNetwork,
   onClose,
 }) => {
   const [showCopied, setShowCopied] = useState<string>("");
@@ -70,7 +83,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   };
 
   const handleViewOnEtherscan = async () => {
-    const url = `https://etherscan.io/tx/${transaction.hash}`;
+    const url = getEtherscanTxUrl(transaction.hash, selectedNetwork);
     const supported = await Linking.canOpenURL(url);
     if (supported) {
       await Linking.openURL(url);
@@ -131,7 +144,6 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           {/* Transaction Details */}
           <View style={styles.detailsCard}>
             <Text style={styles.sectionTitle}>Transaction Information</Text>
-
             {/* Hash */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Transaction Hash</Text>
@@ -149,7 +161,6 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 />
               </TouchableOpacity>
             </View>
-
             {/* From Address */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>From</Text>
@@ -167,7 +178,6 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 />
               </TouchableOpacity>
             </View>
-
             {/* To Address */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>To</Text>
@@ -185,13 +195,11 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 />
               </TouchableOpacity>
             </View>
-
             {/* Block Number */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Block Number</Text>
               <Text style={styles.detailValue}>#{transaction.blockNumber}</Text>
             </View>
-
             {/* Timestamp */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Timestamp</Text>
@@ -199,7 +207,6 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 {new Date(transaction.timeStamp).toLocaleString()}
               </Text>
             </View>
-
             {/* Category */}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Type</Text>
@@ -227,12 +234,14 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   );
 };
 
-// Main Transactions Page Component
+// ------------------- Main Transactions Page Component -----------------------
+
 export const TransactionsPage: React.FC<TransactionsPageProps> = ({
   visible,
   onClose,
   walletAddress,
   alchemy,
+  selectedNetwork,
 }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -255,60 +264,49 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
         } else {
           setLoading(true);
         }
-
-        // Fetch both ETH and ERC20 transfers
-        const ethTransfersPromise = alchemy.core.getAssetTransfers({
-          fromAddress: walletAddress,
-          category: [AssetTransfersCategory.EXTERNAL],
-          maxCount: 50,
-          order: SortingOrder.DESCENDING,
-          pageKey: refresh ? undefined : pageKey,
-        });
-
-        const ethTransfersToPromise = alchemy.core.getAssetTransfers({
-          toAddress: walletAddress,
-          category: [AssetTransfersCategory.EXTERNAL],
-          maxCount: 50,
-          order: SortingOrder.DESCENDING,
-          pageKey: refresh ? undefined : pageKey,
-        });
-
-        const erc20TransfersPromise = alchemy.core.getAssetTransfers({
-          fromAddress: walletAddress,
-          category: [AssetTransfersCategory.ERC20],
-          maxCount: 50,
-          order: SortingOrder.DESCENDING,
-          pageKey: refresh ? undefined : pageKey,
-        });
-
-        const erc20TransfersToPromise = alchemy.core.getAssetTransfers({
-          toAddress: walletAddress,
-          category: [AssetTransfersCategory.ERC20],
-          maxCount: 50,
-          order: SortingOrder.DESCENDING,
-          pageKey: refresh ? undefined : pageKey,
-        });
-
+        // Parallel fetch
         const [
           ethTransfersFrom,
           ethTransfersTo,
           erc20TransfersFrom,
           erc20TransfersTo,
         ] = await Promise.all([
-          ethTransfersPromise,
-          ethTransfersToPromise,
-          erc20TransfersPromise,
-          erc20TransfersToPromise,
+          alchemy.core.getAssetTransfers({
+            fromAddress: walletAddress,
+            category: [AssetTransfersCategory.EXTERNAL],
+            maxCount: 50,
+            order: SortingOrder.DESCENDING,
+            pageKey: refresh ? undefined : pageKey,
+          }),
+          alchemy.core.getAssetTransfers({
+            toAddress: walletAddress,
+            category: [AssetTransfersCategory.EXTERNAL],
+            maxCount: 50,
+            order: SortingOrder.DESCENDING,
+            pageKey: refresh ? undefined : pageKey,
+          }),
+          alchemy.core.getAssetTransfers({
+            fromAddress: walletAddress,
+            category: [AssetTransfersCategory.ERC20],
+            maxCount: 50,
+            order: SortingOrder.DESCENDING,
+            pageKey: refresh ? undefined : pageKey,
+          }),
+          alchemy.core.getAssetTransfers({
+            toAddress: walletAddress,
+            category: [AssetTransfersCategory.ERC20],
+            maxCount: 50,
+            order: SortingOrder.DESCENDING,
+            pageKey: refresh ? undefined : pageKey,
+          }),
         ]);
-
-        // Combine all transfers
+        // Combine
         const allTransfers = [
           ...ethTransfersFrom.transfers,
           ...ethTransfersTo.transfers,
           ...erc20TransfersFrom.transfers,
           ...erc20TransfersTo.transfers,
         ];
-
         const formattedTransactions: Transaction[] = allTransfers.map((tx) => ({
           hash: tx.hash || "",
           from: tx.from || "",
@@ -319,19 +317,16 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
           timeStamp:
             (tx as any).metadata?.blockTimestamp || new Date().toISOString(),
           status: "1",
-          blockNumber: parseInt(tx.blockNum || "0", 16),
+          blockNumber: parseInt((tx.blockNum || "0").replace("0x", ""), 16),
           tokenSymbol: (tx as any).asset || "ETH",
           tokenName: (tx as any).tokenName || "Ethereum",
           category: tx.category,
         }));
-
-        // Remove duplicates and sort by block number
+        // Remove duplicates and sort
         const uniqueTransactions = formattedTransactions.filter(
           (tx, index, arr) => arr.findIndex((t) => t.hash === tx.hash) === index
         );
-
         uniqueTransactions.sort((a, b) => b.blockNumber - a.blockNumber);
-
         if (refresh) {
           setTransactions(uniqueTransactions);
         } else {
@@ -343,8 +338,6 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             );
           });
         }
-
-        // Update pagination
         const nextPageKey =
           ethTransfersFrom.pageKey ||
           ethTransfersTo.pageKey ||
@@ -372,10 +365,7 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
       fetchTransactions(false);
     }
   };
-
-  const onRefresh = () => {
-    fetchTransactions(true);
-  };
+  const onRefresh = () => fetchTransactions(true);
 
   const handleTransactionPress = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
@@ -387,13 +377,11 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
       transaction.to.toLowerCase() === walletAddress.toLowerCase();
     return isReceived ? "call-received" : "call-made";
   };
-
   const getTransactionColor = (transaction: Transaction) => {
     const isReceived =
       transaction.to.toLowerCase() === walletAddress.toLowerCase();
     return isReceived ? "#34C759" : "#FF9500";
   };
-
   const getTransactionType = (transaction: Transaction) => {
     const isReceived =
       transaction.to.toLowerCase() === walletAddress.toLowerCase();
@@ -402,15 +390,11 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
       transaction.category === "erc20" ? ` ${transaction.tokenSymbol}` : " ETH";
     return baseType + tokenType;
   };
-
   useEffect(() => {
-    if (visible && initialLoad) {
-      fetchTransactions(true);
-    }
+    if (visible && initialLoad) fetchTransactions(true);
   }, [visible, fetchTransactions, initialLoad]);
 
   if (!visible) return null;
-
   return (
     <Modal
       visible={visible}
@@ -428,7 +412,6 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
           <View style={styles.placeholder} />
         </View>
 
-        {/* Loading Screen for Initial Load */}
         {initialLoad && loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#007AFF" />
@@ -438,7 +421,6 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             </Text>
           </View>
         ) : (
-          /* Transactions List */
           <ScrollView
             style={styles.transactionsList}
             refreshControl={
@@ -496,7 +478,6 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
                           color={getTransactionColor(transaction)}
                         />
                       </View>
-
                       <View style={styles.transactionInfo}>
                         <Text style={styles.transactionType}>
                           {getTransactionType(transaction)}
@@ -513,7 +494,6 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
                         </Text>
                       </View>
                     </View>
-
                     <View style={styles.transactionRight}>
                       <Text
                         style={[
@@ -566,63 +546,42 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             setShowDetailModal(false);
             setSelectedTransaction(null);
           }}
+          selectedNetwork={selectedNetwork}
         />
       </SafeAreaView>
     </Modal>
   );
 };
 
+// ----------- StyleSheet: Colors, Size, and Shape from SettingsScreen -----------
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F2F2F2",
   },
   header: {
+    height: 60,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
+    borderBottomColor: "#EFEFEF",
   },
   backButton: {
     padding: 8,
     borderRadius: 8,
+    backgroundColor: "rgba(0, 122, 255, 0.1)",
   },
   title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1F2937",
+    fontSize: 25,
+    fontWeight: "600",
+    color: "#333333",
   },
   placeholder: {
     width: 40,
   },
-  walletInfo: {
-    backgroundColor: "#FFFFFF",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  walletLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-  walletAddress: {
-    fontSize: 14,
-    fontFamily: "monospace",
-    color: "#374151",
-  },
-
-  // Loading Container
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -642,10 +601,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-
-  transactionsList: {
-    flex: 1,
-  },
+  transactionsList: { flex: 1 },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -685,16 +641,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#EFEFEF",
   },
-  transactionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
+  transactionLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
   transactionIcon: {
     width: 40,
     height: 40,
@@ -702,14 +654,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    // backgroundColor set runtime for accent
   },
-  transactionInfo: {
-    flex: 1,
-  },
+  transactionInfo: { flex: 1 },
   transactionType: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#1F2937",
+    color: "#333333",
     marginBottom: 2,
   },
   transactionHash: {
@@ -718,18 +669,9 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginBottom: 2,
   },
-  transactionTime: {
-    fontSize: 11,
-    color: "#9CA3AF",
-  },
-  transactionRight: {
-    alignItems: "flex-end",
-  },
-  transactionValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
+  transactionTime: { fontSize: 11, color: "#9CA3AF" },
+  transactionRight: { alignItems: "flex-end" },
+  transactionValue: { fontSize: 16, fontWeight: "700", marginBottom: 2 },
   transactionSymbol: {
     fontSize: 11,
     color: "#6B7280",
@@ -742,11 +684,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 20,
   },
-  loadingMoreText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#6B7280",
-  },
+  loadingMoreText: { marginLeft: 8, fontSize: 14, color: "#6B7280" },
   endMessage: {
     flexDirection: "row",
     alignItems: "center",
@@ -759,25 +697,21 @@ const styles = StyleSheet.create({
     color: "#10B981",
     fontWeight: "500",
   },
-
-  // Detail Modal Styles
   detailContainer: {
     flex: 1,
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F2F2F2",
   },
   detailHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 16,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: "#EFEFEF",
   },
-  closeButton: {
-    padding: 8,
-  },
+  closeButton: { padding: 8 },
   detailTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -788,10 +722,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "rgba(0, 122, 255, 0.1)",
   },
-  detailContent: {
-    flex: 1,
-    padding: 20,
-  },
+  detailContent: { flex: 1, padding: 20 },
   statusCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -812,11 +743,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  statusText: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
+  statusText: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   amountText: {
     fontSize: 24,
     fontWeight: "800",
@@ -846,9 +773,7 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     marginBottom: 16,
   },
-  detailRow: {
-    marginBottom: 16,
-  },
+  detailRow: { marginBottom: 16 },
   detailLabel: {
     fontSize: 12,
     color: "#6B7280",

@@ -1,12 +1,14 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { ALCHEMY_API_KEY, ALCHEMY_NETWORK } from "@env";
 import { Alchemy, Network } from "alchemy-sdk";
 import React, { useEffect, useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import {
   ActivityIndicator,
   Alert,
   Linking,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,14 +17,13 @@ import {
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { copyToClipboard } from "../../../../utils/GlobalUtils/CopyToClipboard";
-import { useThemeToggle } from "../../../../utils/GlobalUtils/ThemeProvider"; // Import theme provider
+import { useThemeToggle } from "../../../../utils/GlobalUtils/ThemeProvider";
 
 import { formatTimeAgo } from "../../../../utils/WalletUtils/dateFormatter";
 import { clearWalletData } from "../../../../utils/WalletUtils/walletStorage";
 import { ActionButtons } from "../components/ActionButtons";
 import { BalanceCard } from "../components/BalanceCard";
 import { ExportPrivateKey } from "../components/ExportPrivateKey";
-import { NetworkSelector } from "../components/NetworkSelector";
 import { usePriceData } from "../hooks/usePriceData";
 import { useWalletData } from "../hooks/useWalletData";
 import { NetworkModal } from "../modals/NetworkModal";
@@ -31,14 +32,18 @@ import { TransactionsModal } from "../modals/TransactionsModal";
 import ReceiveScreen from "./ReceiveScreen";
 import { TransactionsPage } from "./TransactionsPage";
 
+type SupportedNetwork = "ethereum" | "sepolia";
+
 interface WalletScreenProps {
   onWalletRemoved: () => void;
 }
 
 export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
-  const { currentTheme } = useThemeToggle(); // Use theme provider
+  const { currentTheme } = useThemeToggle();
   const isDarkMode = currentTheme === "dark";
 
+  const [selectedNetwork, setSelectedNetwork] =
+    useState<SupportedNetwork>("ethereum");
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -47,9 +52,9 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     useState<boolean>(false);
   const [showReceiveScreen, setShowReceiveScreen] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
-  const [selectedNetwork, setSelectedNetwork] = useState<string>("ethereum");
   const [showCopied, setShowCopied] = useState<boolean>(false);
   const [showTransactionsPage, setShowTransactionsPage] = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
 
   const alchemy = React.useMemo(
     () =>
@@ -76,24 +81,18 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     if (address) {
       await copyToClipboard(address);
       setShowCopied(true);
-
-      setTimeout(() => {
-        setShowCopied(false);
-      }, 2000);
+      setTimeout(() => setShowCopied(false), 2000);
     }
   };
 
-  const handleNetworkChange = (networkId: string) => {
+  const handleNetworkChange = (networkId: SupportedNetwork) => {
     setSelectedNetwork(networkId);
     setShowNetworkModal(false);
     const networkNames = {
       ethereum: "Ethereum Mainnet",
       sepolia: "Sepolia Testnet",
     };
-    Alert.alert(
-      "Network Changed",
-      `Switched to ${networkNames[networkId as keyof typeof networkNames]}`
-    );
+    Alert.alert("Network Changed", `Switched to ${networkNames[networkId]}`);
   };
 
   const handleRemoveWallet = async () => {
@@ -113,7 +112,7 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
                 "Wallet has been removed from this device",
                 [{ text: "OK", onPress: onWalletRemoved }]
               );
-            } catch (error) {
+            } catch {
               Alert.alert("Error", "Failed to remove wallet data");
             }
           },
@@ -123,15 +122,17 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
   };
 
   const handleViewOnEtherscan = async () => {
-    if (address) {
-      const url = `https://etherscan.io/address/${address}`;
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        setShowSettingsModal(false);
-        await Linking.openURL(url);
-      } else {
-        Alert.alert("Error", "Cannot open Etherscan");
-      }
+    if (!address) return;
+    const base =
+      selectedNetwork === "ethereum"
+        ? "https://etherscan.io"
+        : "https://sepolia.etherscan.io";
+    const url = `${base}/address/${address}`;
+    if (await Linking.canOpenURL(url)) {
+      setShowSettingsModal(false);
+      Linking.openURL(url);
+    } else {
+      Alert.alert("Error", "Cannot open Etherscan");
     }
   };
 
@@ -142,16 +143,21 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     }
   };
 
-  const handleSend = () => {
+  const handleSend = () =>
     Alert.alert("Send", "Send functionality will be implemented here");
-  };
-
-  const handleReceive = () => {
-    setShowReceiveScreen(true);
-  };
-
-  const handleSwap = () => {
+  const handleReceive = () => setShowReceiveScreen(true);
+  const handleSwap = () =>
     Alert.alert("Swap", "Swap functionality will be implemented here");
+
+  const onNetworkChange = (networkId: string) => {
+    if (networkId === "ethereum" || networkId === "sepolia") {
+      handleNetworkChange(networkId as SupportedNetwork);
+    } else {
+      Alert.alert(
+        "Unsupported network",
+        "Only Ethereum and Sepolia are supported."
+      );
+    }
   };
 
   const onRefresh = () => {
@@ -170,18 +176,21 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     );
   }, [loadWalletInfo, fetchEthPrice, fetchTokenPrices, onWalletRemoved]);
 
-  const styles = getStyles(isDarkMode); // Get styles based on theme
+  const styles = getStyles(isDarkMode);
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading real blockchain data...</Text>
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>
+            Loading real blockchain data...
+          </Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  // Show Receive Screen
   if (showReceiveScreen) {
     return (
       <ReceiveScreen
@@ -194,17 +203,25 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Wallet</Text>
-          </View>
+      {/* Header */}
+      <View style={styles.headerContainer}>
+        <View style={styles.leftHeaderSection}>
+          <Text style={styles.headerTitleText}>Wallet</Text>
+        </View>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.networkButton}
+            onPress={() => setShowNetworkModal(true)}
+          >
+            <Icon
+              name="language"
+              size={20}
+              color={isDarkMode ? "#fff" : "#000"}
+            />
+            <Text style={styles.networkText}>
+              {selectedNetwork === "ethereum" ? "ETH" : "SEP"}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.settingsButton}
             onPress={() => setShowSettingsModal(true)}
@@ -212,22 +229,28 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
             <Icon
               name="settings"
               size={20}
-              color={isDarkMode ? "#fff" : "#000000"}
+              color={isDarkMode ? "#fff" : "#000"}
             />
           </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Balance Card */}
+      <ScrollView
+        style={styles.scrollViewContainer}
+        contentContainerStyle={styles.scrollViewContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Total Value */}
         <BalanceCard
           totalPortfolioValue={totalPortfolioValue}
           balance={balance}
           ethPriceUsd={ethPriceUsd}
-        />
-
-        {/* Network Selector */}
-        <NetworkSelector
-          selectedNetwork={selectedNetwork}
-          onNetworkPress={() => setShowNetworkModal(true)}
+          showValue={showPortfolio}
+          onToggleShow={() => setShowPortfolio((v) => !v)}
+          walletAddress={address ?? ""}
+          onQRPress={handleReceive}
         />
 
         {/* Action Buttons */}
@@ -237,112 +260,110 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
           onSwap={handleSwap}
         />
 
-        {/* Address Section with Blue Box */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="account-circle" size={20} color="#007AFF" />
-            <Text style={styles.cardTitle}>Wallet Address</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addressBox}
-            onPress={handleCopyAddress}
-          >
-            <View style={styles.addressContent}>
-              <Text
-                style={styles.addressText}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                {address}
-              </Text>
-              <View style={styles.copyIconContainer}>
-                {showCopied ? (
-                  <>
-                    <Icon name="check" size={16} color="#ffffff" />
-                    <Text style={styles.copiedText}>Copied</Text>
-                  </>
-                ) : (
-                  <Icon name="content-copy" size={16} color="#ffffff" />
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* Network & Block Info */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="language" size={20} color="#007AFF" />
-            <Text style={styles.cardTitle}>Network Information</Text>
-          </View>
-          <View style={styles.networkInfo}>
-            <Text style={styles.networkItem}>Network: {networkName}</Text>
-            <Text style={styles.networkItem}>
-              Latest Block:{" "}
-              {latestBlock !== null ? `#${latestBlock.toLocaleString()}` : "—"}
-            </Text>
-            <Text style={styles.networkItem}>
-              ETH Price: ${ethPriceUsd.toLocaleString()}
-            </Text>
-          </View>
-        </View>
-
-        {/* Token Balances */}
+        {/* Token Holdings - ADDED BELOW Send & Receive */}
         {tokenBalances.length > 0 && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Icon name="toll" size={20} color="#007AFF" />
-              <Text style={styles.cardTitle}>Token Holdings</Text>
-            </View>
-            {tokenBalances.map((token, index) => (
-              <View key={index} style={styles.tokenRow}>
-                <View style={styles.tokenInfo}>
-                  <Text style={styles.tokenSymbol}>{token.tokenSymbol}</Text>
-                  <Text style={styles.tokenName}>{token.tokenName}</Text>
-                </View>
-                <View style={styles.tokenBalanceInfo}>
-                  <Text style={styles.tokenBalance}>
-                    {parseFloat(token.tokenBalance).toFixed(4)}
-                  </Text>
-                  {token.balanceUsd !== undefined && token.balanceUsd > 0 && (
-                    <Text style={styles.tokenBalanceUsd}>
-                      ${token.balanceUsd.toFixed(2)}
-                    </Text>
+          <>
+            <Text style={styles.label}>Token Holdings</Text>
+            <View style={styles.tokensContainer}>
+              {tokenBalances.map((token, idx) => (
+                <View key={idx}>
+                  <View style={styles.tokenItem}>
+                    <View style={styles.tokenRow}>
+                      <Text style={styles.tokenLabel}>Symbol:</Text>
+                      <Text style={styles.tokenValue}>{token.tokenSymbol}</Text>
+                    </View>
+                    <View style={styles.tokenRow}>
+                      <Text style={styles.tokenLabel}>Name:</Text>
+                      <Text style={styles.tokenValue}>{token.tokenName}</Text>
+                    </View>
+                    <View style={styles.tokenRowLast}>
+                      <Text style={styles.tokenLabel}>Balance:</Text>
+                      <View style={styles.tokenBalanceInfo}>
+                        <Text style={styles.tokenBalance}>
+                          {parseFloat(token.tokenBalance).toFixed(4)}
+                        </Text>
+                        {token.balanceUsd !== undefined &&
+                          token.balanceUsd > 0 && (
+                            <Text style={styles.tokenBalanceUsd}>
+                              ${token.balanceUsd.toFixed(2)}
+                            </Text>
+                          )}
+                      </View>
+                    </View>
+                  </View>
+                  {idx < tokenBalances.length - 1 && (
+                    <View style={styles.separator} />
                   )}
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          </>
         )}
+
+        {/* Network & Block Info */}
+        <Text style={styles.label}>Network Information</Text>
+        <View style={styles.infoContainer}>
+          <View style={styles.infoItem}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Network:</Text>
+              <Text style={styles.infoValue}>{networkName}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Latest Block:</Text>
+              <Text style={styles.infoValue}>
+                {latestBlock !== null
+                  ? `#${latestBlock.toLocaleString()}`
+                  : "—"}
+              </Text>
+            </View>
+            <View style={styles.infoRowLast}>
+              <Text style={styles.infoLabel}>ETH Price:</Text>
+              <Text style={styles.infoValue}>
+                ${ethPriceUsd.toLocaleString()}
+              </Text>
+            </View>
+          </View>
+        </View>
 
         {/* Recent Transactions */}
         {recentTransactions.length > 0 && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Icon name="history" size={20} color="#007AFF" />
-              <Text style={styles.cardTitle}>Recent Activity</Text>
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.label}>Recent Activity</Text>
               <TouchableOpacity onPress={() => setShowTransactionsModal(true)}>
                 <Text style={styles.viewAll}>View All</Text>
               </TouchableOpacity>
             </View>
-            {recentTransactions.slice(0, 3).map((tx, index) => (
-              <View key={index} style={styles.transactionRow}>
-                <View style={styles.transactionInfo}>
-                  <Text style={styles.transactionType}>
-                    {tx.to.toLowerCase() === address?.toLowerCase()
-                      ? "Received"
-                      : "Sent"}
-                  </Text>
-                  <Text style={styles.transactionTime}>
-                    {formatTimeAgo(tx.timeStamp)}
-                  </Text>
+            <View style={styles.transactionsContainer}>
+              {recentTransactions.slice(0, 3).map((tx, i) => (
+                <View key={i}>
+                  <View style={styles.transactionItem}>
+                    <View style={styles.transactionRow}>
+                      <Text style={styles.transactionLabel}>Type:</Text>
+                      <Text style={styles.transactionType}>
+                        {tx.to.toLowerCase() === address?.toLowerCase()
+                          ? "Received"
+                          : "Sent"}
+                      </Text>
+                    </View>
+                    <View style={styles.transactionRow}>
+                      <Text style={styles.transactionLabel}>Time:</Text>
+                      <Text style={styles.transactionTime}>
+                        {formatTimeAgo(tx.timeStamp)}
+                      </Text>
+                    </View>
+                    <View style={styles.transactionRowLast}>
+                      <Text style={styles.transactionLabel}>Amount:</Text>
+                      <Text style={styles.transactionAmount}>
+                        {parseFloat(tx.value).toFixed(4)} ETH
+                      </Text>
+                    </View>
+                  </View>
+                  {i < 2 && <View style={styles.separator} />}
                 </View>
-                <Text style={styles.transactionAmount}>
-                  {parseFloat(tx.value).toFixed(4)} ETH
-                </Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          </>
         )}
       </ScrollView>
 
@@ -351,9 +372,8 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
         visible={showNetworkModal}
         selectedNetwork={selectedNetwork}
         onClose={() => setShowNetworkModal(false)}
-        onNetworkChange={handleNetworkChange}
+        onNetworkChange={onNetworkChange}
       />
-
       <SettingsModal
         visible={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
@@ -361,6 +381,7 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
         onViewOnEtherscan={handleViewOnEtherscan}
         onShareAddress={handleShareAddress}
         walletAddress={address ?? undefined}
+        selectedNetwork={selectedNetwork}
         onExportPrivateKey={() => {
           setShowSettingsModal(false);
           setShowExportModal(true);
@@ -370,25 +391,24 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
           setShowTransactionsPage(true);
         }}
       />
-
       <TransactionsModal
         visible={showTransactionsModal}
         onClose={() => setShowTransactionsModal(false)}
         transactions={recentTransactions}
-        walletAddress={address ?? null}
+        walletAddress={address ?? ""}
+        selectedNetwork={selectedNetwork}
       />
-
       <ExportPrivateKey
         visible={showExportModal}
         onClose={() => setShowExportModal(false)}
         walletAddress={address ?? undefined}
       />
-
       <TransactionsPage
         visible={showTransactionsPage}
         onClose={() => setShowTransactionsPage(false)}
         walletAddress={address || ""}
         alchemy={alchemy}
+        selectedNetwork={selectedNetwork}
       />
     </SafeAreaView>
   );
@@ -396,258 +416,220 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
 
 const getStyles = (isDarkMode: boolean) =>
   StyleSheet.create({
-    // Main Container Styles
     container: {
       flex: 1,
-      backgroundColor: isDarkMode ? "#1C1C1D" : "#f5f5f5",
-    },
-    safeArea: {
-      flex: 1,
+      backgroundColor: isDarkMode ? "#1C1C1D" : "#F2F2F2",
     },
     centered: {
       flex: 1,
       justifyContent: "center",
       alignItems: "center",
-      backgroundColor: isDarkMode ? "#1C1C1D" : "#f5f5f5",
+      backgroundColor: isDarkMode ? "#1C1C1D" : "#F2F2F2",
     },
-    content: {
-      padding: 16,
-      paddingBottom: 32,
+    loadingText: {
+      fontSize: 14,
+      color: isDarkMode ? "#aaa" : "#888",
+      textAlign: "center",
+      marginTop: 10,
     },
-
-    // Header Styles
-    header: {
+    headerContainer: {
       flexDirection: "row",
+      alignItems: "center",
+      height: 40,
+      paddingHorizontal: 16,
+      backgroundColor: isDarkMode ? "#1C1C1D" : "#F2F2F2",
       justifyContent: "space-between",
+    },
+    leftHeaderSection: {
+      flex: 1,
+      justifyContent: "flex-start",
       alignItems: "flex-start",
-      marginBottom: 24,
-      paddingHorizontal: 4,
     },
-    title: {
-      fontSize: 28,
-      fontWeight: "800",
-      color: isDarkMode ? "#fff" : "#1a1a1a",
-      letterSpacing: -0.5,
+    headerTitleText: {
+      fontSize: 25,
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#000",
     },
-    lastUpdated: {
+    headerButtons: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    networkButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 8,
+      borderRadius: 12,
+      backgroundColor: isDarkMode ? "#2C2C2E" : "#F0F0F0",
+      gap: 6,
+    },
+    networkText: {
       fontSize: 12,
-      color: isDarkMode ? "#999" : "#666",
-      marginTop: 4,
-      fontWeight: "500",
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#000",
     },
     settingsButton: {
       padding: 8,
       borderRadius: 12,
     },
-    backButton: {
-      padding: 8,
-      borderRadius: 8,
-      backgroundColor: "rgba(0, 122, 255, 0.1)",
-    },
-    placeholder: {
-      width: 40,
-    },
-
-    // Loading Styles
-    loadingText: {
-      marginTop: 16,
-      fontSize: 16,
-      color: isDarkMode ? "#999" : "#666",
-      textAlign: "center",
-      fontWeight: "500",
-    },
-
-    // Card Styles
-    card: {
-      backgroundColor: isDarkMode ? "#121212" : "#ffffff",
-      borderRadius: 16,
-      padding: 18,
-      marginBottom: 16,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: isDarkMode ? 0.3 : 0.08,
-      shadowRadius: 8,
-      elevation: 4,
-      borderWidth: 1,
-      borderColor: isDarkMode ? "#333" : "rgba(0, 0, 0, 0.04)",
-    },
-    cardHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginBottom: 14,
-    },
-    cardTitle: {
-      fontSize: 16,
-      fontWeight: "700",
-      marginLeft: 10,
-      color: isDarkMode ? "#fff" : "#1a1a1a",
+    scrollViewContainer: {
       flex: 1,
-      letterSpacing: -0.2,
+    },
+    scrollViewContent: {
+      flexGrow: 1,
+      paddingBottom: 20,
+    },
+    label: {
+      fontSize: 16,
+      fontWeight: "bold",
+      marginBottom: 8,
+      paddingLeft: 16,
+      color: isDarkMode ? "#fff" : "#333",
+    },
+    tokensContainer: {
+      backgroundColor: isDarkMode ? "#222" : "#fff",
+      borderRadius: 15,
+      padding: 8,
+      marginBottom: 32,
+    },
+    tokenItem: {
+      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8,
+    },
+    tokenRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 8,
+    },
+    tokenRowLast: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    tokenLabel: {
+      width: 100,
+      fontSize: 14,
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#333",
+    },
+    tokenValue: {
+      flex: 1,
+      fontSize: 14,
+      color: isDarkMode ? "#fff" : "#555",
+      marginLeft: 8,
+    },
+    tokenBalanceInfo: {
+      flex: 1,
+      alignItems: "flex-end",
+      marginLeft: 8,
+    },
+    tokenBalance: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: isDarkMode ? "#fff" : "#333",
+    },
+    tokenBalanceUsd: {
+      fontSize: 12,
+      color: isDarkMode ? "#aaa" : "#888",
+      marginTop: 2,
+    },
+    infoContainer: {
+      backgroundColor: isDarkMode ? "#222" : "#fff",
+      borderRadius: 15,
+      padding: 8,
+      marginBottom: 32,
+    },
+    infoItem: {
+      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8,
+    },
+    infoRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 8,
+    },
+    infoRowLast: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    infoLabel: {
+      width: 100,
+      fontSize: 14,
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#333",
+    },
+    infoValue: {
+      flex: 1,
+      fontSize: 14,
+      color: isDarkMode ? "#fff" : "#555",
+      marginLeft: 8,
+      textAlign: "right",
+    },
+    sectionHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
     },
     viewAll: {
       fontSize: 14,
       color: "#007AFF",
       fontWeight: "600",
-      letterSpacing: 0.1,
     },
-
-    // Blue Address Box Styles
-    addressBox: {
-      backgroundColor: "#007AFF",
-      borderRadius: 12,
-      padding: 16,
-      shadowColor: "#007AFF",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 3,
+    transactionsContainer: {
+      backgroundColor: isDarkMode ? "#222" : "#fff",
+      borderRadius: 15,
+      padding: 8,
+      marginBottom: 32,
     },
-    addressContent: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
+    transactionItem: {
+      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8,
     },
-    addressText: {
-      fontSize: 14,
-      fontFamily: "monospace",
-      color: "#ffffff",
-      fontWeight: "600",
-      flex: 1,
-      marginRight: 12,
-    },
-    copyIconContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      minWidth: 60,
-      justifyContent: "flex-end",
-    },
-    copiedText: {
-      fontSize: 12,
-      color: "#ffffff",
-      fontWeight: "600",
-      marginLeft: 4,
-    },
-
-    // Network Info Styles
-    networkInfo: {
-      gap: 10,
-    },
-    networkItem: {
-      fontSize: 15,
-      color: isDarkMode ? "#ddd" : "#374151",
-      fontWeight: "500",
-      paddingVertical: 2,
-    },
-
-    // Token Styles
-    tokenRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: isDarkMode ? "#333" : "#f3f4f6",
-    },
-    tokenInfo: {
-      flex: 1,
-    },
-    tokenSymbol: {
-      fontSize: 16,
-      fontWeight: "700",
-      color: isDarkMode ? "#fff" : "#1a1a1a",
-      letterSpacing: -0.2,
-    },
-    tokenName: {
-      fontSize: 13,
-      color: isDarkMode ? "#999" : "#6b7280",
-      marginTop: 2,
-      fontWeight: "500",
-    },
-    tokenBalanceInfo: {
-      alignItems: "flex-end",
-    },
-    tokenBalance: {
-      fontSize: 16,
-      fontWeight: "700",
-      color: isDarkMode ? "#fff" : "#111827",
-      letterSpacing: -0.2,
-    },
-    tokenBalanceUsd: {
-      fontSize: 13,
-      color: isDarkMode ? "#999" : "#6b7280",
-      marginTop: 2,
-      fontWeight: "500",
-    },
-
-    // Transaction Styles
     transactionRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: isDarkMode ? "#333" : "#f3f4f6",
+      marginBottom: 8,
     },
-    transactionInfo: {
-      flex: 1,
+    transactionRowLast: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    transactionLabel: {
+      width: 100,
+      fontSize: 14,
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#333",
     },
     transactionType: {
-      fontSize: 15,
-      fontWeight: "600",
-      color: isDarkMode ? "#fff" : "#1a1a1a",
-      letterSpacing: -0.1,
+      flex: 1,
+      fontSize: 14,
+      color: isDarkMode ? "#fff" : "#555",
+      marginLeft: 8,
     },
     transactionTime: {
+      flex: 1,
       fontSize: 12,
-      color: isDarkMode ? "#999" : "#6b7280",
-      marginTop: 3,
-      fontWeight: "500",
+      color: isDarkMode ? "#aaa" : "#888",
+      marginLeft: 8,
     },
     transactionAmount: {
-      fontSize: 15,
+      flex: 1,
+      fontSize: 14,
       fontWeight: "700",
-      color: isDarkMode ? "#fff" : "#111827",
+      color: isDarkMode ? "#fff" : "#333",
       fontFamily: "monospace",
-      letterSpacing: -0.2,
+      marginLeft: 8,
+      textAlign: "right",
     },
-
-    // Color Variants
-    primaryText: {
-      color: isDarkMode ? "#fff" : "#1a1a1a",
-    },
-    secondaryText: {
-      color: isDarkMode ? "#999" : "#6b7280",
-    },
-    accentColor: {
-      color: "#007AFF",
-    },
-    successColor: {
-      color: "#10b981",
-    },
-    warningColor: {
-      color: "#f59e0b",
-    },
-    errorColor: {
-      color: "#ef4444",
-    },
-
-    // Background Colors
-    backgroundPrimary: {
-      backgroundColor: isDarkMode ? "#121212" : "#ffffff",
-    },
-    backgroundSecondary: {
-      backgroundColor: isDarkMode ? "#1C1C1D" : "#f8f9fa",
-    },
-    backgroundAccent: {
-      backgroundColor: "#007AFF",
-    },
-    backgroundSuccess: {
-      backgroundColor: isDarkMode ? "#0f2419" : "#dcfce7",
-    },
-    backgroundWarning: {
-      backgroundColor: isDarkMode ? "#2d1b0f" : "#fef3c7",
-    },
-    backgroundError: {
-      backgroundColor: isDarkMode ? "#2d0f0f" : "#fee2e2",
+    separator: {
+      height: 1,
+      backgroundColor: isDarkMode ? "#444" : "#e0e0e0",
+      marginVertical: 4,
     },
   });
