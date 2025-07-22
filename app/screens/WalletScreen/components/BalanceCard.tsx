@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   balanceValue: {
-    fontSize: 32,
+    fontSize: 40,
     fontWeight: "bold",
     color: "#000",
     marginVertical: 8,
@@ -130,9 +130,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   address: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: "monospace",
-    color: "#000",
+    color: "#007AFF",
   },
   copyButton: {
     marginLeft: 8,

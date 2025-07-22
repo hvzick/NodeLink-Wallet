@@ -2,11 +2,10 @@
 import { ALCHEMY_API_KEY, ALCHEMY_NETWORK } from "@env";
 import { Alchemy, Network } from "alchemy-sdk";
 import React, { useEffect, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
-
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   RefreshControl,
   ScrollView,
@@ -15,11 +14,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { copyToClipboard } from "../../../../utils/GlobalUtils/CopyToClipboard";
 import { useThemeToggle } from "../../../../utils/GlobalUtils/ThemeProvider";
-
-import { formatTimeAgo } from "../../../../utils/WalletUtils/dateFormatter";
+import {
+  TokenBalance,
+  createTokenService,
+} from "../../../../utils/WalletUtils/TokenService";
 import { clearWalletData } from "../../../../utils/WalletUtils/walletStorage";
 import { ActionButtons } from "../components/ActionButtons";
 import { BalanceCard } from "../components/BalanceCard";
@@ -33,6 +35,9 @@ import ReceiveScreen from "./ReceiveScreen";
 import { TransactionsPage } from "./TransactionsPage";
 
 type SupportedNetwork = "ethereum" | "sepolia";
+
+const ETH_LOGO =
+  "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png";
 
 interface WalletScreenProps {
   onWalletRemoved: () => void;
@@ -55,6 +60,15 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
   const [showCopied, setShowCopied] = useState<boolean>(false);
   const [showTransactionsPage, setShowTransactionsPage] = useState(false);
   const [showPortfolio, setShowPortfolio] = useState(false);
+  const [realTokenBalances, setRealTokenBalances] = useState<TokenBalance[]>(
+    []
+  );
+  const [tokenLoading, setTokenLoading] = useState<boolean>(false);
+
+  // Logo error state (per URL)
+  const [logoLoadError, setLogoLoadError] = useState<{
+    [url: string]: boolean;
+  }>({});
 
   const alchemy = React.useMemo(
     () =>
@@ -65,17 +79,37 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     []
   );
 
+  // Create TokenService instance
+  const tokenService = React.useMemo(
+    () => createTokenService(alchemy),
+    [alchemy]
+  );
+
   const { ethPriceUsd, fetchEthPrice, fetchTokenPrices } = usePriceData();
   const {
     address,
-    balance,
+    balance, // ETH/SepoliaETH balance (as Ether string)
     networkName,
     latestBlock,
-    tokenBalances,
     recentTransactions,
     totalPortfolioValue,
     loadWalletInfo,
   } = useWalletData(alchemy);
+
+  // Fetch real ERC-20 token balances
+  const fetchRealTokenBalances = async () => {
+    if (!address) return;
+    setTokenLoading(true);
+    try {
+      const tokens = await tokenService.fetchTokenBalances(address);
+      const tokensWithPrices = await tokenService.fetchTokenPrices(tokens);
+      setRealTokenBalances(tokensWithPrices);
+    } catch {
+      Alert.alert("Error", "Failed to fetch token balances");
+    } finally {
+      setTokenLoading(false);
+    }
+  };
 
   const handleCopyAddress = async () => {
     if (address) {
@@ -136,6 +170,22 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
     }
   };
 
+  const handleViewTokenOnEtherscan = (contractAddress: string) => {
+    if (!contractAddress) return;
+    const base =
+      selectedNetwork === "ethereum"
+        ? "https://etherscan.io"
+        : "https://sepolia.etherscan.io";
+    const url = `${base}/token/${contractAddress}`;
+    Linking.canOpenURL(url).then((supported) => {
+      if (supported) {
+        Linking.openURL(url);
+      } else {
+        Alert.alert("Error", "Cannot open Etherscan");
+      }
+    });
+  };
+
   const handleShareAddress = () => {
     if (address) {
       setShowSettingsModal(false);
@@ -162,30 +212,55 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadWalletInfo(fetchEthPrice, fetchTokenPrices, onWalletRemoved).finally(
-      () => {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    );
+    Promise.all([
+      loadWalletInfo(fetchEthPrice, fetchTokenPrices, onWalletRemoved),
+      fetchRealTokenBalances(),
+    ]).finally(() => {
+      setLoading(false);
+      setRefreshing(false);
+    });
   };
 
   useEffect(() => {
-    loadWalletInfo(fetchEthPrice, fetchTokenPrices, onWalletRemoved).finally(
-      () => setLoading(false)
-    );
-  }, [loadWalletInfo, fetchEthPrice, fetchTokenPrices, onWalletRemoved]);
+    const initializeWallet = async () => {
+      try {
+        await Promise.all([
+          loadWalletInfo(fetchEthPrice, fetchTokenPrices, onWalletRemoved),
+          fetchRealTokenBalances(),
+        ]);
+      } catch (error) {
+        console.error("Error initializing wallet:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    initializeWallet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   const styles = getStyles(isDarkMode);
+
+  // ====== Compose ETH pseudo-token and prepend ======
+  const nativeEthBalance = balance ? parseFloat(balance) : 0;
+  const nativeEthToken: TokenBalance = {
+    contractAddress: "",
+    tokenBalance: nativeEthBalance.toString(),
+    tokenSymbol: selectedNetwork === "ethereum" ? "ETH" : "SepoliaETH",
+    tokenName:
+      selectedNetwork === "ethereum" ? "Ethereum" : "Sepolia Testnet ETH",
+    tokenDecimals: 18,
+    logo: ETH_LOGO,
+    balanceUsd: ethPriceUsd ? nativeEthBalance * ethPriceUsd : undefined,
+    priceUsd: ethPriceUsd,
+  };
+  const tokenList = [nativeEthToken, ...realTokenBalances];
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>
-            Loading real blockchain data...
-          </Text>
+          <Text style={styles.loadingText}>Loading wallet data...</Text>
         </View>
       </SafeAreaView>
     );
@@ -253,118 +328,99 @@ export default function WalletScreen({ onWalletRemoved }: WalletScreenProps) {
           onQRPress={handleReceive}
         />
 
+        {/* Token Holdings (ETH + ERC-20s) */}
+        <>
+          <Text style={styles.label}>Token Holdings</Text>
+          {tokenLoading && tokenList.length === 0 ? (
+            <View style={styles.tokenLoadingContainer}>
+              <ActivityIndicator size="small" color="#007AFF" />
+              <Text style={styles.tokenLoadingText}>Loading tokens...</Text>
+            </View>
+          ) : tokenList.length > 0 ? (
+            <View style={styles.tokensContainer}>
+              {tokenList.map((token, idx) => (
+                <TouchableOpacity
+                  key={`${token.contractAddress || "native"}-${idx}`}
+                  style={styles.tokenItem}
+                  onPress={
+                    token.contractAddress
+                      ? () => handleViewTokenOnEtherscan(token.contractAddress)
+                      : undefined
+                  }
+                  activeOpacity={0.7}
+                  disabled={!token.contractAddress}
+                >
+                  <View style={styles.tokenHeader}>
+                    <View style={styles.tokenIconContainer}>
+                      {/* Logo Failover */}
+                      {token.logo && !logoLoadError[token.logo] ? (
+                        <Image
+                          source={{ uri: token.logo }}
+                          style={styles.tokenIcon}
+                          onError={() =>
+                            setLogoLoadError((errs) => ({
+                              ...errs,
+                              [token.logo!]: true,
+                            }))
+                          }
+                        />
+                      ) : (
+                        <View style={styles.tokenIconFallback}>
+                          <Text style={styles.tokenIconText}>
+                            {token.tokenSymbol?.charAt(0) || "?"}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.tokenInfo}>
+                        <Text style={styles.tokenSymbol}>
+                          {token.tokenSymbol || "UNKNOWN"}
+                        </Text>
+                        <Text style={styles.tokenName} numberOfLines={1}>
+                          {token.tokenName || "Unknown Token"}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.tokenBalanceContainer}>
+                      <Text style={styles.tokenBalanceValue}>
+                        {tokenService.formatTokenBalance(token.tokenBalance)}
+                      </Text>
+                      {token.balanceUsd && token.balanceUsd > 0 && (
+                        <Text style={styles.tokenBalanceUsd}>
+                          {tokenService.formatUsdValue(token.balanceUsd)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.tokenDetails}>
+                    {token.priceUsd && (
+                      <Text style={styles.tokenPrice}>
+                        Price: $
+                        {token.priceUsd.toFixed(token.priceUsd < 1 ? 6 : 2)}
+                      </Text>
+                    )}
+                  </View>
+                  {idx < tokenList.length - 1 && (
+                    <View style={styles.separator} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.noTokensContainer}>
+              <Text style={styles.noTokensText}>No tokens found</Text>
+              <Text style={styles.noTokensSubText}>
+                This wallet doesn&apos;t hold any ERC-20 tokens
+              </Text>
+            </View>
+          )}
+        </>
+
         {/* Action Buttons */}
         <ActionButtons
           onSend={handleSend}
           onReceive={handleReceive}
           onSwap={handleSwap}
         />
-
-        {/* Token Holdings - ADDED BELOW Send & Receive */}
-        {tokenBalances.length > 0 && (
-          <>
-            <Text style={styles.label}>Token Holdings</Text>
-            <View style={styles.tokensContainer}>
-              {tokenBalances.map((token, idx) => (
-                <View key={idx}>
-                  <View style={styles.tokenItem}>
-                    <View style={styles.tokenRow}>
-                      <Text style={styles.tokenLabel}>Symbol:</Text>
-                      <Text style={styles.tokenValue}>{token.tokenSymbol}</Text>
-                    </View>
-                    <View style={styles.tokenRow}>
-                      <Text style={styles.tokenLabel}>Name:</Text>
-                      <Text style={styles.tokenValue}>{token.tokenName}</Text>
-                    </View>
-                    <View style={styles.tokenRowLast}>
-                      <Text style={styles.tokenLabel}>Balance:</Text>
-                      <View style={styles.tokenBalanceInfo}>
-                        <Text style={styles.tokenBalance}>
-                          {parseFloat(token.tokenBalance).toFixed(4)}
-                        </Text>
-                        {token.balanceUsd !== undefined &&
-                          token.balanceUsd > 0 && (
-                            <Text style={styles.tokenBalanceUsd}>
-                              ${token.balanceUsd.toFixed(2)}
-                            </Text>
-                          )}
-                      </View>
-                    </View>
-                  </View>
-                  {idx < tokenBalances.length - 1 && (
-                    <View style={styles.separator} />
-                  )}
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-
-        {/* Network & Block Info */}
-        <Text style={styles.label}>Network Information</Text>
-        <View style={styles.infoContainer}>
-          <View style={styles.infoItem}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Network:</Text>
-              <Text style={styles.infoValue}>{networkName}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Latest Block:</Text>
-              <Text style={styles.infoValue}>
-                {latestBlock !== null
-                  ? `#${latestBlock.toLocaleString()}`
-                  : "—"}
-              </Text>
-            </View>
-            <View style={styles.infoRowLast}>
-              <Text style={styles.infoLabel}>ETH Price:</Text>
-              <Text style={styles.infoValue}>
-                ${ethPriceUsd.toLocaleString()}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Recent Transactions */}
-        {recentTransactions.length > 0 && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.label}>Recent Activity</Text>
-              <TouchableOpacity onPress={() => setShowTransactionsModal(true)}>
-                <Text style={styles.viewAll}>View All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.transactionsContainer}>
-              {recentTransactions.slice(0, 3).map((tx, i) => (
-                <View key={i}>
-                  <View style={styles.transactionItem}>
-                    <View style={styles.transactionRow}>
-                      <Text style={styles.transactionLabel}>Type:</Text>
-                      <Text style={styles.transactionType}>
-                        {tx.to.toLowerCase() === address?.toLowerCase()
-                          ? "Received"
-                          : "Sent"}
-                      </Text>
-                    </View>
-                    <View style={styles.transactionRow}>
-                      <Text style={styles.transactionLabel}>Time:</Text>
-                      <Text style={styles.transactionTime}>
-                        {formatTimeAgo(tx.timeStamp)}
-                      </Text>
-                    </View>
-                    <View style={styles.transactionRowLast}>
-                      <Text style={styles.transactionLabel}>Amount:</Text>
-                      <Text style={styles.transactionAmount}>
-                        {parseFloat(tx.value).toFixed(4)} ETH
-                      </Text>
-                    </View>
-                  </View>
-                  {i < 2 && <View style={styles.separator} />}
-                </View>
-              ))}
-            </View>
-          </>
-        )}
       </ScrollView>
 
       {/* Modals */}
@@ -488,148 +544,123 @@ const getStyles = (isDarkMode: boolean) =>
     },
     tokensContainer: {
       backgroundColor: isDarkMode ? "#222" : "#fff",
-      borderRadius: 15,
-      padding: 8,
       marginBottom: 32,
+      paddingVertical: 8,
     },
     tokenItem: {
-      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 5,
     },
-    tokenRow: {
+    tokenHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
+      alignItems: "center",
       marginBottom: 8,
     },
-    tokenRowLast: {
+    tokenIconContainer: {
       flexDirection: "row",
-      justifyContent: "space-between",
+      alignItems: "center",
+      flex: 1,
     },
-    tokenLabel: {
-      width: 100,
-      fontSize: 14,
-      fontWeight: "600",
+    tokenIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      marginRight: 12,
+    },
+    tokenIconFallback: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: isDarkMode ? "#444" : "#e0e0e0",
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 12,
+    },
+    tokenIconText: {
+      fontSize: 16,
+      fontWeight: "bold",
       color: isDarkMode ? "#fff" : "#333",
     },
-    tokenValue: {
+    tokenInfo: {
       flex: 1,
-      fontSize: 14,
-      color: isDarkMode ? "#fff" : "#555",
-      marginLeft: 8,
     },
-    tokenBalanceInfo: {
-      flex: 1,
+    tokenSymbol: {
+      fontSize: 16,
+      fontWeight: "bold",
+      color: isDarkMode ? "#fff" : "#333",
+    },
+    tokenName: {
+      fontSize: 12,
+      color: isDarkMode ? "#aaa" : "#666",
+      marginTop: 2,
+    },
+    tokenBalanceContainer: {
       alignItems: "flex-end",
-      marginLeft: 8,
     },
-    tokenBalance: {
-      fontSize: 14,
+    tokenBalanceValue: {
+      fontSize: 16,
       fontWeight: "700",
       color: isDarkMode ? "#fff" : "#333",
+      fontFamily: "monospace",
     },
     tokenBalanceUsd: {
       fontSize: 12,
       color: isDarkMode ? "#aaa" : "#888",
       marginTop: 2,
     },
-    infoContainer: {
+    tokenDetails: {
+      marginTop: 4,
+    },
+    contractAddress: {
+      fontSize: 10,
+      color: isDarkMode ? "#666" : "#999",
+      fontFamily: "monospace",
+    },
+    tokenPrice: {
+      fontSize: 12,
+      color: isDarkMode ? "#666" : "#999",
+      marginTop: 2,
+    },
+    tokenLoadingContainer: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+      paddingVertical: 20,
+    },
+    tokenLoadingText: {
+      fontSize: 14,
+      color: isDarkMode ? "#aaa" : "#888",
+      marginLeft: 8,
+    },
+    noTokensContainer: {
       backgroundColor: isDarkMode ? "#222" : "#fff",
       borderRadius: 15,
-      padding: 8,
+      marginHorizontal: 16,
       marginBottom: 32,
+      paddingVertical: 40,
+      alignItems: "center",
     },
-    infoItem: {
-      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 8,
+    noTokensText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: isDarkMode ? "#fff" : "#333",
+      textAlign: "center",
+    },
+    noTokensSubText: {
+      fontSize: 14,
+      color: isDarkMode ? "#aaa" : "#666",
+      textAlign: "center",
+      marginTop: 4,
     },
     infoRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       marginBottom: 8,
     },
-    infoRowLast: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-    },
-    infoLabel: {
-      width: 100,
-      fontSize: 14,
-      fontWeight: "600",
-      color: isDarkMode ? "#fff" : "#333",
-    },
-    infoValue: {
-      flex: 1,
-      fontSize: 14,
-      color: isDarkMode ? "#fff" : "#555",
-      marginLeft: 8,
-      textAlign: "right",
-    },
-    sectionHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 8,
-    },
-    viewAll: {
-      fontSize: 14,
-      color: "#007AFF",
-      fontWeight: "600",
-    },
-    transactionsContainer: {
-      backgroundColor: isDarkMode ? "#222" : "#fff",
-      borderRadius: 15,
-      padding: 8,
-      marginBottom: 32,
-    },
-    transactionItem: {
-      backgroundColor: isDarkMode ? "#333" : "#f9f9f9",
-      padding: 12,
-      borderRadius: 8,
-      marginBottom: 8,
-    },
-    transactionRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginBottom: 8,
-    },
-    transactionRowLast: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-    },
-    transactionLabel: {
-      width: 100,
-      fontSize: 14,
-      fontWeight: "600",
-      color: isDarkMode ? "#fff" : "#333",
-    },
-    transactionType: {
-      flex: 1,
-      fontSize: 14,
-      color: isDarkMode ? "#fff" : "#555",
-      marginLeft: 8,
-    },
-    transactionTime: {
-      flex: 1,
-      fontSize: 12,
-      color: isDarkMode ? "#aaa" : "#888",
-      marginLeft: 8,
-    },
-    transactionAmount: {
-      flex: 1,
-      fontSize: 14,
-      fontWeight: "700",
-      color: isDarkMode ? "#fff" : "#333",
-      fontFamily: "monospace",
-      marginLeft: 8,
-      textAlign: "right",
-    },
     separator: {
       height: 1,
       backgroundColor: isDarkMode ? "#444" : "#e0e0e0",
-      marginVertical: 4,
+      marginVertical: 8,
     },
   });
