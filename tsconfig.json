@@ -1,10 +1,17 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "baseUrl": ".",
     "strict": true,
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@env": [
+        "./env.d.ts"
+      ],
+      "alchemy-sdk": [
+        "node_modules/alchemy-sdk/dist/index.d.ts"
       ]
     }
   },
@@ -12,6 +19,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
+    "env.d.ts",
     "expo-env.d.ts"
   ]
 }
